@@ -4,16 +4,19 @@ import yt_dlp
 import asyncio
 import os
 
+# Ensure the downloads directory exists
+os.makedirs("downloads", exist_ok=True)
+
+# Set up Discord bot intents
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# Set up YouTube downloader
+# YouTube download options
 yt_opts = {
     'format': 'bestaudio/best',
     'quiet': True,
     'noplaylist': True,
-    'extract_flat': 'in_playlist',
     'default_search': 'ytsearch',
     'outtmpl': 'downloads/%(title)s.%(ext)s',
     'postprocessors': [{
@@ -57,12 +60,24 @@ async def play(ctx, *, search: str):
     with yt_dlp.YoutubeDL(yt_opts) as ydl:
         try:
             info = ydl.extract_info(search, download=True)
+            if 'entries' in info:  # Handle search result lists
+                info = info['entries'][0]
             filename = ydl.prepare_filename(info).replace(".webm", ".mp3").replace(".m4a", ".mp3")
         except Exception as e:
             return await ctx.send(f"⚠️ Error: {e}")
 
+    def after_playing(error):
+        if error:
+            print(f"Player error: {error}")
+        else:
+            print("Done playing")
+        try:
+            os.remove(filename)
+        except Exception as e:
+            print(f"Error deleting file: {e}")
+
     vc.stop()
-    vc.play(discord.FFmpegPCMAudio(filename), after=lambda e: print("Done", e))
+    vc.play(discord.FFmpegPCMAudio(filename), after=after_playing)
     await ctx.send(f"▶️ Now playing: **{info['title']}**")
 
 @bot.command()
@@ -71,4 +86,5 @@ async def stop(ctx):
         ctx.voice_client.stop()
         await ctx.send("⏹️ Stopped the music.")
 
+# Run the bot with your token from environment variable
 bot.run(os.getenv("DISCORD_TOKEN"))
