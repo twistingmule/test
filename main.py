@@ -33,8 +33,14 @@ async def on_ready():
 @bot.command()
 async def join(ctx):
     if ctx.author.voice:
-        await ctx.author.voice.channel.connect()
-        await ctx.send("🔊 Joined the voice channel.")
+        try:
+            await ctx.author.voice.channel.connect()
+            await ctx.send("🔊 Joined the voice channel.")
+        except discord.ClientException:
+            await ctx.send("❗ Already connected.")
+        except Exception as e:
+            print(f"Join error: {e}")
+            await ctx.send("❗ Error joining the channel.")
     else:
         await ctx.send("❗ You're not in a voice channel.")
 
@@ -51,7 +57,11 @@ async def play(ctx, *, search: str):
     vc = ctx.voice_client
     if not vc:
         if ctx.author.voice:
-            vc = await ctx.author.voice.channel.connect()
+            try:
+                vc = await ctx.author.voice.channel.connect()
+            except Exception as e:
+                print(f"Voice connect error: {e}")
+                return await ctx.send("❗ Failed to join the voice channel.")
         else:
             return await ctx.send("❗ You're not in a voice channel.")
 
@@ -62,9 +72,10 @@ async def play(ctx, *, search: str):
             info = ydl.extract_info(search, download=True)
             if 'entries' in info:  # Handle search result lists
                 info = info['entries'][0]
-            filename = ydl.prepare_filename(info).replace(".webm", ".mp3").replace(".m4a", ".mp3")
+            filename = os.path.splitext(ydl.prepare_filename(info))[0] + ".mp3"
         except Exception as e:
-            return await ctx.send(f"⚠️ Error: {e}")
+            print(f"Download error: {e}")
+            return await ctx.send(f"⚠️ Error downloading audio: {e}")
 
     def after_playing(error):
         if error:
@@ -76,15 +87,27 @@ async def play(ctx, *, search: str):
         except Exception as e:
             print(f"Error deleting file: {e}")
 
-    vc.stop()
-    vc.play(discord.FFmpegPCMAudio(filename), after=after_playing)
-    await ctx.send(f"▶️ Now playing: **{info['title']}**")
+    if vc.is_playing():
+        vc.stop()
+
+    try:
+        vc.play(discord.FFmpegPCMAudio(filename, executable="ffmpeg"), after=after_playing)
+        await ctx.send(f"▶️ Now playing: **{info['title']}**")
+    except Exception as e:
+        print(f"Playback error: {e}")
+        await ctx.send("❗ Failed to play the audio.")
 
 @bot.command()
 async def stop(ctx):
     if ctx.voice_client:
         ctx.voice_client.stop()
         await ctx.send("⏹️ Stopped the music.")
+    else:
+        await ctx.send("❗ I'm not playing anything.")
 
 # Run the bot with your token from environment variable
-bot.run(os.getenv("DISCORD_TOKEN"))
+token = os.getenv("DISCORD_TOKEN")
+if not token:
+    print("❌ DISCORD_TOKEN environment variable not set.")
+else:
+    bot.run(token)
