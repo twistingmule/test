@@ -3,6 +3,7 @@ from discord.ext import commands
 import yt_dlp
 import asyncio
 import os
+import threading
 
 # Ensure the downloads directory exists
 os.makedirs("downloads", exist_ok=True)
@@ -70,7 +71,7 @@ async def play(ctx, *, search: str):
     with yt_dlp.YoutubeDL(yt_opts) as ydl:
         try:
             info = ydl.extract_info(search, download=True)
-            if 'entries' in info:  # Handle search result lists
+            if 'entries' in info:
                 info = info['entries'][0]
             filename = os.path.splitext(ydl.prepare_filename(info))[0] + ".mp3"
         except Exception as e:
@@ -82,16 +83,19 @@ async def play(ctx, *, search: str):
             print(f"Player error: {error}")
         else:
             print("Done playing")
-        try:
-            os.remove(filename)
-        except Exception as e:
-            print(f"Error deleting file: {e}")
+        def delete_file():
+            try:
+                os.remove(filename)
+                print(f"Deleted {filename}")
+            except Exception as e:
+                print(f"Error deleting file: {e}")
+        threading.Timer(2.0, delete_file).start()
 
     if vc.is_playing():
         vc.stop()
 
     try:
-        vc.play(discord.FFmpegPCMAudio(filename, executable="ffmpeg"), after=after_playing)
+        vc.play(discord.FFmpegPCMAudio(filename, executable="./ffmpeg"), after=after_playing)
         await ctx.send(f"▶️ Now playing: **{info['title']}**")
     except Exception as e:
         print(f"Playback error: {e}")
@@ -105,7 +109,6 @@ async def stop(ctx):
     else:
         await ctx.send("❗ I'm not playing anything.")
 
-# Run the bot with your token from environment variable
 token = os.getenv("DISCORD_TOKEN")
 if not token:
     print("❌ DISCORD_TOKEN environment variable not set.")
