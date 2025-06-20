@@ -1,116 +1,65 @@
-import discord
-from discord.ext import commands
-import yt_dlp
-import asyncio
 import os
 import threading
+import discord
+from discord.ext import commands
+from openai import OpenAI
+from flask import Flask
 
-# Ensure the downloads directory exists
-os.makedirs("downloads", exist_ok=True)
+client = OpenAI(
+    api_key=os.getenv("OPENROUTER_API_KEY"),
+    base_url="https://openrouter.ai/api/v1"
+)
 
-# Set up Discord bot intents
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# YouTube download options
-yt_opts = {
-    'format': 'bestaudio/best',
-    'quiet': True,
-    'noplaylist': True,
-    'default_search': 'ytsearch',
-    'outtmpl': 'downloads/%(title)s.%(ext)s',
-    'postprocessors': [{
-        'key': 'FFmpegExtractAudio',
-        'preferredcodec': 'mp3',
-        'preferredquality': '192',
-    }],
-}
-
 @bot.event
 async def on_ready():
-    print(f"🎶 Music Bot online as {bot.user}")
+    print(f"🤖 Bot is online as {bot.user}")
 
 @bot.command()
-async def join(ctx):
-    if ctx.author.voice:
+async def ping(ctx):
+    await ctx.send("Pong!")
+
+@bot.command()
+async def ask(ctx, *, question=None):
+    if not question:
+        await ctx.send("❗ You need to ask a question, like:\n`!ask What is the meaning of life?`")
+        return
+
+    async with ctx.channel.typing():
         try:
-            await ctx.author.voice.channel.connect()
-            await ctx.send("🔊 Joined the voice channel.")
-        except discord.ClientException:
-            await ctx.send("❗ Already connected.")
+            response = client.chat.completions.create(
+                model="deepseek/deepseek-r1-0528-qwen3-8b:free",
+                messages=[{"role": "user", "content": question}]
+            )
+            answer = response.choices[0].message.content.strip()
+            await ctx.send(answer[:2000])
         except Exception as e:
-            print(f"Join error: {e}")
-            await ctx.send("❗ Error joining the channel.")
-    else:
-        await ctx.send("❗ You're not in a voice channel.")
+            await ctx.send(f"⚠️ Error: {str(e)}")
 
-@bot.command()
-async def leave(ctx):
-    if ctx.voice_client:
-        await ctx.voice_client.disconnect()
-        await ctx.send("👋 Left the voice channel.")
-    else:
-        await ctx.send("❗ I'm not in a voice channel.")
+@bot.command(name="help")
+async def custom_help(ctx):
+    help_text = (
+        "**Here are my available commands:**\n"
+        "\n"
+        "• `!ping` - Check if the bot is responsive\n"
+        "• `!ask <question>` - Ask me anything using AI\n"
+        "• `!help` - Show this help message"
+    )
+    await ctx.send(help_text)
 
-@bot.command()
-async def play(ctx, *, search: str):
-    vc = ctx.voice_client
-    if not vc:
-        if ctx.author.voice:
-            try:
-                vc = await ctx.author.voice.channel.connect()
-            except Exception as e:
-                print(f"Voice connect error: {e}")
-                return await ctx.send("❗ Failed to join the voice channel.")
-        else:
-            return await ctx.send("❗ You're not in a voice channel.")
+app = Flask(__name__)
 
-    await ctx.send(f"🎵 Searching for: `{search}`...")
+@app.route("/")
+def home():
+    return "Discord Bot is running!"
 
-    with yt_dlp.YoutubeDL(yt_opts) as ydl:
-        try:
-            info = ydl.extract_info(search, download=True)
-            if 'entries' in info:
-                info = info['entries'][0]
-            filename = os.path.splitext(ydl.prepare_filename(info))[0] + ".mp3"
-        except Exception as e:
-            print(f"Download error: {e}")
-            return await ctx.send(f"⚠️ Error downloading audio: {e}")
+def run_bot():
+    bot.run(os.getenv("DISCORD_TOKEN"))
 
-    def after_playing(error):
-        if error:
-            print(f"Player error: {error}")
-        else:
-            print("Done playing")
-        def delete_file():
-            try:
-                os.remove(filename)
-                print(f"Deleted {filename}")
-            except Exception as e:
-                print(f"Error deleting file: {e}")
-        threading.Timer(2.0, delete_file).start()
-
-    if vc.is_playing():
-        vc.stop()
-
-    try:
-        vc.play(discord.FFmpegPCMAudio(filename, executable="./ffmpeg"), after=after_playing)
-        await ctx.send(f"▶️ Now playing: **{info['title']}**")
-    except Exception as e:
-        print(f"Playback error: {e}")
-        await ctx.send("❗ Failed to play the audio.")
-
-@bot.command()
-async def stop(ctx):
-    if ctx.voice_client:
-        ctx.voice_client.stop()
-        await ctx.send("⏹️ Stopped the music.")
-    else:
-        await ctx.send("❗ I'm not playing anything.")
-
-token = os.getenv("DISCORD_TOKEN")
-if not token:
-    print("❌ DISCORD_TOKEN environment variable not set.")
-else:
-    bot.run(token)
+if __name__ == "__main__":
+    threading.Thread(target=run_bot).start()
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
