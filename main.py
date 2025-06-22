@@ -9,6 +9,9 @@ from flask import Flask
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
+# Debug output to verify the loaded API key
+print("🔐 OPENROUTER_API_KEY:", OPENROUTER_API_KEY[:10] + "..." if OPENROUTER_API_KEY else "None")
+
 if not DISCORD_TOKEN or not OPENROUTER_API_KEY:
     raise ValueError("Missing DISCORD_TOKEN or OPENROUTER_API_KEY environment variables.")
 
