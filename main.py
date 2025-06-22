@@ -5,14 +5,25 @@ from discord.ext import commands
 from openai import OpenAI
 from flask import Flask
 
+# === Environment Variables ===
+DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+
+if not DISCORD_TOKEN or not OPENROUTER_API_KEY:
+    raise ValueError("Missing DISCORD_TOKEN or OPENROUTER_API_KEY environment variables.")
+
+# === OpenAI / OpenRouter Client Setup ===
 client = OpenAI(
-    api_key=os.getenv("OPENROUTER_API_KEY"),
+    api_key=OPENROUTER_API_KEY,
     base_url="https://openrouter.ai/api/v1"
 )
 
+# === Discord Bot Setup ===
 intents = discord.Intents.default()
 intents.message_content = True
+
 bot = commands.Bot(command_prefix="!", intents=intents)
+bot.remove_command("help")  # Remove default help command to avoid conflicts
 
 @bot.event
 async def on_ready():
@@ -42,14 +53,14 @@ async def ask(ctx, *, question=None):
 @bot.command(name="help")
 async def custom_help(ctx):
     help_text = (
-        "**Here are my available commands:**\n"
-        "\n"
+        "**Here are my available commands:**\n\n"
         "• `!ping` - Check if the bot is responsive\n"
         "• `!ask <question>` - Ask me anything using AI\n"
         "• `!help` - Show this help message"
     )
     await ctx.send(help_text)
 
+# === Flask Server for Uptime Monitoring or Hosting ===
 app = Flask(__name__)
 
 @app.route("/")
@@ -57,8 +68,12 @@ def home():
     return "Discord Bot is running!"
 
 def run_bot():
-    bot.run(os.getenv("DISCORD_TOKEN"))
+    try:
+        bot.run(DISCORD_TOKEN)
+    except Exception as e:
+        print(f"❌ Bot failed to start: {e}")
 
+# === Entry Point ===
 if __name__ == "__main__":
     threading.Thread(target=run_bot).start()
     port = int(os.environ.get("PORT", 5000))
