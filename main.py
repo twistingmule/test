@@ -4,13 +4,17 @@ import discord
 from discord.ext import commands
 from openai import OpenAI
 from flask import Flask
+from dotenv import load_dotenv
 
-# === Environment Variables ===
+# === Load from .env if available ===
+load_dotenv()
+
+# === Environment Variables with Hardcoded Fallback ===
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY") or "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"
 
 # Debug output to verify the loaded API key
-print("🔐 OPENROUTER_API_KEY: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 ", OPENROUTER_API_KEY[:10] + "..." if OPENROUTER_API_KEY else "None")
+print("🔐 OPENROUTER_API_KEY:", OPENROUTER_API_KEY[:10] + "..." if OPENROUTER_API_KEY else "None")
 
 if not DISCORD_TOKEN or not OPENROUTER_API_KEY:
     raise ValueError("Missing DISCORD_TOKEN or OPENROUTER_API_KEY environment variables.")
