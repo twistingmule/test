@@ -1,87 +1,60 @@
-import os
-import threading
 import discord
 from discord.ext import commands
-from openai import OpenAI
-from flask import Flask
+import yt_dlp
+import asyncio
+import os
 from dotenv import load_dotenv
 
-# === Load from .env if available ===
 load_dotenv()
+TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 
-# === Environment Variables with Hardcoded Fallback ===
-DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY") or "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"
-
-# Debug output to verify the loaded API key
-print("🔐 OPENROUTER_API_KEY:", OPENROUTER_API_KEY[:10] + "..." if OPENROUTER_API_KEY else "None")
-
-if not DISCORD_TOKEN or not OPENROUTER_API_KEY:
-    raise ValueError("Missing DISCORD_TOKEN or OPENROUTER_API_KEY environment variables.")
-
-# === OpenAI / OpenRouter Client Setup ===
-client = OpenAI(
-    api_key=OPENROUTER_API_KEY,
-    base_url="https://openrouter.ai/api/v1"
-)
-
-# === Discord Bot Setup ===
 intents = discord.Intents.default()
 intents.message_content = True
-
 bot = commands.Bot(command_prefix="!", intents=intents)
-bot.remove_command("help")  # Remove default help command to avoid conflicts
+
+queues = {}
 
 @bot.event
 async def on_ready():
-    print(f"🤖 Bot is online as {bot.user}")
+    print(f"Logged in as {bot.user}")
+
+async def play_next(ctx):
+    server_id = str(ctx.guild.id)
+    if queues[server_id]:
+        source = queues[server_id].pop(0)
+        ctx.voice_client.play(discord.FFmpegPCMAudio(source), after=lambda e: asyncio.run(play_next(ctx)))
 
 @bot.command()
-async def ping(ctx):
-    await ctx.send("Pong!")
+async def join(ctx):
+    if ctx.author.voice:
+        await ctx.author.voice.channel.connect()
+    else:
+        await ctx.send("You must be in a voice channel to summon me.")
 
 @bot.command()
-async def ask(ctx, *, question=None):
-    if not question:
-        await ctx.send("❗ You need to ask a question, like:\n`!ask What is the meaning of life?`")
-        return
+async def play(ctx, *, url):
+    server_id = str(ctx.guild.id)
+    if server_id not in queues:
+        queues[server_id] = []
 
-    async with ctx.channel.typing():
-        try:
-            response = client.chat.completions.create(
-                model="deepseek/deepseek-r1-0528-qwen3-8b:free",
-                messages=[{"role": "user", "content": question}]
-            )
-            answer = response.choices[0].message.content.strip()
-            await ctx.send(answer[:2000])
-        except Exception as e:
-            await ctx.send(f"⚠️ Error: {str(e)}")
+    ydl_opts = {
+        'format': 'bestaudio/best',
+        'outtmpl': 'downloads/%(title)s.%(ext)s',
+        'noplaylist': True,
+        'quiet': True
+    }
 
-@bot.command(name="help")
-async def custom_help(ctx):
-    help_text = (
-        "**Here are my available commands:**\n\n"
-        "• `!ping` - Check if the bot is responsive\n"
-        "• `!ask <question>` - Ask me anything using AI\n"
-        "• `!help` - Show this help message"
-    )
-    await ctx.send(help_text)
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=True)
+        filename = ydl.prepare_filename(info)
 
-# === Flask Server for Uptime Monitoring or Hosting ===
-app = Flask(__name__)
+    queues[server_id].append(filename)
+    if not ctx.voice_client.is_playing():
+        await play_next(ctx)
 
-@app.route("/")
-def home():
-    return "Discord Bot is running!"
+@bot.command()
+async def stop(ctx):
+    await ctx.voice_client.disconnect()
 
-def run_bot():
-    try:
-        bot.run(DISCORD_TOKEN)
-    except Exception as e:
-        print(f"❌ Bot failed to start: {e}")
+bot.run(TOKEN)
 
-# === Entry Point ===
-if __name__ == "__main__":
-    threading.Thread(target=run_bot).start()
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
